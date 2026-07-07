@@ -84,7 +84,7 @@ scripts\build-windows.cmd
 
 GitHub Actions also includes a `Windows EXE` workflow. After pushing to GitHub, run the workflow or push to `main`, then download the `AI-Session-Manager-windows-x64` artifact.
 
-Building a Windows `.exe` from macOS may fail if the pkg Windows runtime is not available in the remote cache. In that case, build on Windows or use the GitHub Actions workflow.
+The Windows build uses `caxa`, which bundles the app with a Node.js runtime and starts `server.js --open` when the executable is launched.
 
 ## Safety Notes
 

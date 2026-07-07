@@ -14,9 +14,9 @@
     "start": "node server.js",
     "dev": "node server.js --open",
     "scan": "node server.js --scan",
-    "build:win": "pkg . --targets node18-win-x64 --output dist/AI-Session-Manager.exe",
-    "build:mac": "pkg . --targets node18-macos-arm64,node18-macos-x64 --out-path dist",
-    "build:linux": "pkg . --targets node18-linux-x64 --out-path dist"
+    "build:win": "caxa --input . --output dist/AI-Session-Manager.exe --exclude \".git/**\" \"dist/**\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/server.js\" \"--open\"",
+    "build:mac": "caxa --input . --output dist/AI-Session-Manager --exclude \".git/**\" \"dist/**\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/server.js\" \"--open\"",
+    "build:linux": "caxa --input . --output dist/AI-Session-Manager --exclude \".git/**\" \"dist/**\" -- \"{{caxa}}/node_modules/.bin/node\" \"{{caxa}}/server.js\" \"--open\""
   },
   "engines": {
     "node": ">=18"
@@ -30,6 +30,6 @@
     ]
   },
   "devDependencies": {
-    "@yao-pkg/pkg": "^6.21.0"
+    "caxa": "^3.0.1"
   }
 }

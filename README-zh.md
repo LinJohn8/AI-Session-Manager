@@ -84,7 +84,7 @@ scripts\build-windows.cmd
 
 仓库里也添加了 GitHub Actions 的 `Windows EXE` 工作流。推送到 GitHub 后，可以手动运行 workflow，或者推送到 `main`，然后下载 `AI-Session-Manager-windows-x64` artifact。
 
-从 macOS 交叉构建 Windows `.exe` 可能会因为 pkg 的 Windows runtime 缓存不可用而失败。这种情况下请在 Windows 上构建，或使用 GitHub Actions。
+Windows 构建使用 `caxa`，会把项目和 Node.js runtime 一起打包；双击 exe 后会运行 `server.js --open` 并自动打开浏览器。
 
 ## 安全说明
 
