@@ -21,6 +21,7 @@ AI Session Manager 是一个本地优先的桌面会话管理工具，用来查�
   - `工具记录`：只看工具调用、命令和输出摘要。
 - 勾选 session 后移动到 macOS 废纸篓，不做不可恢复的硬删除。
 - 删除 Codex session 时，会同步移除 `~/.codex/session_index.jsonl` 中对应索引，并保存备份。
+- 将已选择的 Codex session 复制或剪切到另一个 `.codex` / `sessions` 目录，并为目标补写 `session_index.jsonl`。
 
 ## 环境要求
 
@@ -28,6 +29,36 @@ AI Session Manager 是一个本地优先的桌面会话管理工具，用来查�
 - Node.js 18+
 
 主要目标仍然是 macOS，但也支持构建 Windows 单文件 `.exe`。session 扫描基于当前用户的 home 目录，所以当 Codex、Claude Code、OpenClaw 把数据放在 `~/.codex`、`~/.claude`、`~/.openclaw` 时，macOS 和 Windows 都可以使用。
+
+## Codex 账号与迁移
+
+在同一个 macOS 用户下，Codex 的 JSONL 对话通常都在：
+
+```text
+~/.codex/sessions
+```
+
+但 Codex 界面能不能显示某个对话，还会受到本地索引和状态文件影响，例如：
+
+```text
+~/.codex/session_index.jsonl
+```
+
+所以会出现“文件还在，但当前登录账号或当前窗口看不到”的情况。不同 macOS 用户、不同机器，或使用了自定义 `CODEX_HOME` / 独立配置目录时，session 才更可能真的在不同位置。
+
+左侧的 `Codex 迁移` 可以把勾选的 Codex session 复制或剪切到目标目录。目标可以填写另一个 Codex 主目录：
+
+```text
+~/.codex
+```
+
+也可以直接填写它的 sessions 目录：
+
+```text
+~/.codex/sessions
+```
+
+复制/剪切时，工具会保留原来的日期目录结构，并尽量为目标补写 `session_index.jsonl`。如果目标索引里已经有同一个 session id，会跳过，避免重复导入。
 
 ## 启动
 

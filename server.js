@@ -36,6 +36,7 @@ const SEARCH_ROOTS = [
 ];
 
 const CODEX_INDEX = path.join(HOME, ".codex", "session_index.jsonl");
+const CODEX_SESSIONS_ROOT = path.join(HOME, ".codex", "sessions");
 function getAppTrashRoot() {
   if (process.platform === "darwin") {
     return path.join(HOME, ".Trash", "AI Session Manager");
@@ -165,6 +166,10 @@ function toIso(value) {
 function isInside(child, parent) {
   const relative = path.relative(parent, child);
   return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function pathsEqual(a, b) {
+  return path.resolve(a) === path.resolve(b);
 }
 
 function allowedRootFor(filePath) {
@@ -533,6 +538,56 @@ async function uniqueDestination(destination) {
   }
 }
 
+function expandHome(rawPath) {
+  const value = String(rawPath || "").trim();
+  if (!value) return "";
+  if (value === "~") return HOME;
+  if (value.startsWith("~/") || value.startsWith("~\\")) return path.join(HOME, value.slice(2));
+  return value;
+}
+
+function resolveCodexTarget(rawTarget) {
+  const expanded = expandHome(rawTarget);
+  if (!expanded) {
+    throw new Error("Target Codex path is required.");
+  }
+
+  const absolute = path.resolve(expanded);
+  const normalized = path.normalize(absolute);
+  const sessionsRoot = path.basename(normalized) === "sessions"
+    ? normalized
+    : path.join(normalized, "sessions");
+  const codexHome = path.dirname(sessionsRoot);
+
+  return {
+    codexHome,
+    sessionsRoot,
+    indexPath: path.join(codexHome, "session_index.jsonl"),
+  };
+}
+
+async function readJsonlIndex(indexPath) {
+  const index = new Map();
+  if (!(await fileExists(indexPath))) return index;
+
+  const rl = readline.createInterface({
+    input: createReadStream(indexPath, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  });
+
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    try {
+      const item = JSON.parse(line);
+      if (item.id) index.set(item.id, item);
+    } catch {
+      // Preserve malformed rows by appending new index records instead of rewriting.
+    }
+  }
+
+  return index;
+}
+
 async function pruneCodexIndex(sessionIds, trashBatchDir) {
   if (!sessionIds.size || !(await fileExists(CODEX_INDEX))) {
     return { changed: false, removed: 0 };
@@ -630,6 +685,121 @@ async function deleteSessions(paths) {
   };
 }
 
+async function appendCodexIndexRows(indexPath, rows) {
+  if (!rows.length) return { changed: false, added: 0 };
+  await fs.mkdir(path.dirname(indexPath), { recursive: true });
+  const body = rows.map((row) => JSON.stringify(row)).join("\n");
+  await fs.appendFile(indexPath, `${body}\n`);
+  return { changed: true, added: rows.length };
+}
+
+async function transferCodexSessions({ paths, targetPath, mode = "copy" }) {
+  if (!Array.isArray(paths) || !paths.length) {
+    throw new Error("No session paths provided.");
+  }
+
+  if (!["copy", "move"].includes(mode)) {
+    throw new Error("Transfer mode must be copy or move.");
+  }
+
+  const target = resolveCodexTarget(targetPath);
+  if (pathsEqual(target.sessionsRoot, CODEX_SESSIONS_ROOT)) {
+    throw new Error("Target Codex sessions directory is the same as the current one.");
+  }
+
+  const sourceIndex = await readCodexIndex();
+  const targetIndex = await readJsonlIndex(target.indexPath);
+  const copied = [];
+  const moved = [];
+  const skipped = [];
+  const failed = [];
+  const indexRows = [];
+  const sourceIdsToPrune = new Set();
+
+  await fs.mkdir(target.sessionsRoot, { recursive: true });
+
+  for (const rawPath of paths) {
+    const filePath = path.resolve(String(rawPath));
+    const root = allowedRootFor(filePath);
+
+    if (!root || root.source !== "codex") {
+      failed.push({ path: filePath, error: "Only current Codex session files can be transferred." });
+      continue;
+    }
+
+    try {
+      const summary = await parseSessionFile(filePath, "codex");
+      if (targetIndex.has(summary.id)) {
+        skipped.push({
+          path: filePath,
+          id: summary.id,
+          title: summary.title || summary.firstUserText || summary.id,
+          reason: "Target index already contains this session id.",
+        });
+        continue;
+      }
+
+      const relative = path.relative(CODEX_SESSIONS_ROOT, filePath);
+      const destination = await uniqueDestination(path.join(target.sessionsRoot, relative));
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      await fs.copyFile(filePath, destination);
+
+      const sourceIndexItem = sourceIndex.get(summary.id);
+      indexRows.push({
+        id: summary.id,
+        thread_name: sourceIndexItem?.thread_name || summary.title || summary.firstUserText || summary.id,
+        updated_at: sourceIndexItem?.updated_at || summary.lastTimestamp || new Date().toISOString(),
+      });
+      targetIndex.set(summary.id, true);
+
+      const item = {
+        path: filePath,
+        destination,
+        id: summary.id,
+        title: summary.title || summary.firstUserText || summary.id,
+        sizeBytes: summary.sizeBytes,
+      };
+      copied.push(item);
+
+      if (mode === "move") {
+        await fs.unlink(filePath);
+        sourceIdsToPrune.add(summary.id);
+        moved.push(item);
+      }
+    } catch (error) {
+      failed.push({ path: filePath, error: error.message });
+    }
+  }
+
+  const targetIndexResult = await appendCodexIndexRows(target.indexPath, indexRows);
+  let sourceIndexResult = { changed: false, removed: 0 };
+  if (mode === "move" && sourceIdsToPrune.size) {
+    const now = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupDir = path.join(TRASH_ROOT, `codex-transfer-${now}`);
+    sourceIndexResult = await pruneCodexIndex(sourceIdsToPrune, backupDir);
+  }
+
+  const manifest = {
+    transferredAt: new Date().toISOString(),
+    mode,
+    target,
+    copied,
+    moved,
+    skipped,
+    failed,
+    targetIndex: targetIndexResult,
+    sourceIndex: sourceIndexResult,
+  };
+  const manifestDir = path.join(target.codexHome, "ai-session-manager-transfer-manifests");
+  await fs.mkdir(manifestDir, { recursive: true });
+  await fs.writeFile(
+    path.join(manifestDir, `transfer-${Date.now()}.json`),
+    JSON.stringify(manifest, null, 2),
+  );
+
+  return manifest;
+}
+
 async function handleApi(req, res, pathname, searchParams) {
   try {
     if (req.method === "GET" && pathname === "/api/sessions") {
@@ -656,6 +826,11 @@ async function handleApi(req, res, pathname, searchParams) {
     if (req.method === "POST" && pathname === "/api/delete") {
       const body = await parseRequestBody(req);
       return jsonResponse(res, 200, await deleteSessions(body.paths));
+    }
+
+    if (req.method === "POST" && pathname === "/api/codex-transfer") {
+      const body = await parseRequestBody(req);
+      return jsonResponse(res, 200, await transferCodexSessions(body));
     }
 
     return jsonResponse(res, 404, { error: "Unknown API endpoint." });

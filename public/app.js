@@ -21,6 +21,10 @@ const els = {
   hideSameWorkspace: document.querySelector("#hideSameWorkspace"),
   sortSelect: document.querySelector("#sortSelect"),
   trashRoot: document.querySelector("#trashRoot"),
+  codexRoot: document.querySelector("#codexRoot"),
+  transferTarget: document.querySelector("#transferTarget"),
+  copySelectedBtn: document.querySelector("#copySelectedBtn"),
+  moveSelectedBtn: document.querySelector("#moveSelectedBtn"),
   selectVisible: document.querySelector("#selectVisible"),
   visibleCount: document.querySelector("#visibleCount"),
   rows: document.querySelector("#sessionRows"),
@@ -113,10 +117,13 @@ function applyFilters() {
 
 function renderMetrics() {
   const totalSize = state.sessions.reduce((sum, session) => sum + (session.sizeBytes || 0), 0);
+  const selectedCodexCount = selectedSessions([...state.selected]).filter((session) => session.source === "codex").length;
   els.countMetric.textContent = state.sessions.length;
   els.sizeMetric.textContent = formatBytes(totalSize);
   els.selectedMetric.textContent = state.selected.size;
   els.deleteSelectedBtn.disabled = state.selected.size === 0;
+  els.copySelectedBtn.disabled = selectedCodexCount === 0;
+  els.moveSelectedBtn.disabled = selectedCodexCount === 0;
   els.visibleCount.textContent = `${state.filtered.length} visible`;
   els.selectVisible.checked = state.filtered.length > 0 && state.filtered.every((s) => state.selected.has(s.path));
 }
@@ -211,6 +218,8 @@ async function loadSessions() {
   const data = await fetchJson("/api/sessions");
   state.sessions = data.sessions;
   els.trashRoot.textContent = data.trashRoot;
+  const codexRoot = data.roots.find((root) => root.source === "codex");
+  els.codexRoot.textContent = codexRoot ? `当前：${codexRoot.root}` : "当前：未找到 Codex root";
   state.selected.clear();
   applyFilters();
 }
@@ -370,8 +379,54 @@ async function deletePaths(paths) {
   }
 }
 
+function selectedCodexPaths() {
+  const byPath = new Map(state.sessions.map((session) => [session.path, session]));
+  return [...state.selected].filter((itemPath) => byPath.get(itemPath)?.source === "codex");
+}
+
+async function transferSelected(mode) {
+  const paths = selectedCodexPaths();
+  const targetPath = els.transferTarget.value.trim();
+  if (!paths.length) {
+    showToast("请先选择 Codex session。");
+    return;
+  }
+  if (!targetPath) {
+    showToast("请填写目标 .codex 或 sessions 路径。");
+    return;
+  }
+
+  if (mode === "move") {
+    const confirmed = window.confirm(`将 ${paths.length} 个 Codex session 剪切到目标路径。源文件会在复制成功后从当前 Codex 目录移除，继续吗？`);
+    if (!confirmed) return;
+  }
+
+  try {
+    const data = await fetchJson("/api/codex-transfer", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths, targetPath, mode }),
+    });
+
+    const action = mode === "move" ? "剪切" : "复制";
+    showToast(`${action}完成：${data.copied.length} 个成功，${data.skipped.length} 个跳过，${data.failed.length} 个失败。`);
+    if (mode === "move") {
+      state.selected.clear();
+      state.activePath = null;
+      state.previewSession = null;
+      els.previewContent.classList.add("hidden");
+      els.previewEmpty.classList.remove("hidden");
+    }
+    await loadSessions();
+  } catch (error) {
+    showToast(`迁移失败：${error.message}`);
+  }
+}
+
 els.refreshBtn.addEventListener("click", () => loadSessions().catch((error) => showToast(error.message)));
 els.deleteSelectedBtn.addEventListener("click", () => confirmDelete([...state.selected]));
+els.copySelectedBtn.addEventListener("click", () => transferSelected("copy"));
+els.moveSelectedBtn.addEventListener("click", () => transferSelected("move"));
 els.searchInput.addEventListener("input", (event) => {
   state.query = event.target.value;
   applyFilters();

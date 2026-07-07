@@ -21,6 +21,7 @@ OpenClaw files named like `*.jsonl.deleted.*` are also shown and marked as `mark
   - `Tools`: shows tool calls and command outputs.
 - Move selected sessions to macOS Trash instead of hard-deleting them.
 - Remove matching Codex rows from `~/.codex/session_index.jsonl` and keep a backup in the same Trash batch.
+- Copy or move selected Codex sessions into another `.codex` / `sessions` directory and append target `session_index.jsonl` rows.
 
 ## Requirements
 
@@ -28,6 +29,36 @@ OpenClaw files named like `*.jsonl.deleted.*` are also shown and marked as `mark
 - Node.js 18+
 
 The primary target is macOS, but a Windows `.exe` build is supported. Session discovery uses the current user's home directory, so common paths such as `~/.codex`, `~/.claude`, and `~/.openclaw` work on both macOS and Windows when those tools store data there.
+
+## Codex Accounts And Migration
+
+For one macOS user, Codex JSONL conversations usually live in:
+
+```text
+~/.codex/sessions
+```
+
+Whether the Codex UI shows a conversation can also depend on local index and state files, including:
+
+```text
+~/.codex/session_index.jsonl
+```
+
+That means a session file may exist on disk while the current account or current Codex window does not list it. Sessions are more likely to live in a different location when you use a different macOS user, a different machine, or a custom `CODEX_HOME` / isolated config directory.
+
+Use the `Codex migration` panel to copy or move selected Codex sessions into another Codex directory. The target can be a Codex home:
+
+```text
+~/.codex
+```
+
+or its sessions directory:
+
+```text
+~/.codex/sessions
+```
+
+The tool preserves the original date folder structure and tries to append matching `session_index.jsonl` rows for the target. If the target index already contains the same session id, the transfer is skipped to avoid duplicate imports.
 
 ## Quick Start
 
