@@ -1,6 +1,6 @@
 # AI Session Manager
 
-AI Session Manager is a local-first macOS web tool for reviewing, filtering, previewing, and safely removing AI coding-agent session files.
+AI Session Manager is a local-first desktop web tool for reviewing, filtering, previewing, and safely removing AI coding-agent session files.
 
 It currently supports local session files from:
 
@@ -24,10 +24,10 @@ OpenClaw files named like `*.jsonl.deleted.*` are also shown and marked as `mark
 
 ## Requirements
 
-- macOS
+- macOS or Windows
 - Node.js 18+
 
-This project is designed around common macOS locations for Codex, Claude Code, OpenClaw, and `~/.Trash`.
+The primary target is macOS, but a Windows `.exe` build is supported. Session discovery uses the current user's home directory, so common paths such as `~/.codex`, `~/.claude`, and `~/.openclaw` work on both macOS and Windows when those tools store data there.
 
 ## Quick Start
 
@@ -47,6 +47,45 @@ You can override the port:
 PORT=8787 npm start
 ```
 
+Development mode opens the browser automatically:
+
+```bash
+npm run dev
+```
+
+## Windows `.exe`
+
+Build a single-file Windows executable:
+
+```bash
+npm install
+npm run build:win
+```
+
+The output is:
+
+```text
+dist/AI-Session-Manager.exe
+```
+
+Double-clicking the `.exe` starts the local server and opens the default browser automatically.
+
+On Windows you can also run:
+
+```powershell
+.\scripts\build-windows.ps1
+```
+
+or:
+
+```cmd
+scripts\build-windows.cmd
+```
+
+GitHub Actions also includes a `Windows EXE` workflow. After pushing to GitHub, run the workflow or push to `main`, then download the `AI-Session-Manager-windows-x64` artifact.
+
+Building a Windows `.exe` from macOS may fail if the pkg Windows runtime is not available in the remote cache. In that case, build on Windows or use the GitHub Actions workflow.
+
 ## Safety Notes
 
 AI sessions can contain prompts, file paths, command output, tokens accidentally pasted by users, or private project information. Review before publishing logs or screenshots.
@@ -54,7 +93,13 @@ AI sessions can contain prompts, file paths, command output, tokens accidentally
 Deletion is implemented as a move into:
 
 ```text
-~/.Trash/CodexSessionCommand
+~/.Trash/AI Session Manager
+```
+
+On Windows, files are moved into:
+
+```text
+%LOCALAPPDATA%\AI Session Manager\Trash
 ```
 
 For Codex sessions, the tool also backs up and rewrites:

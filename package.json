@@ -1,9 +1,10 @@
 {
   "name": "ai-session-manager",
   "version": "1.0.0",
-  "description": "A local macOS session manager for Codex, Claude Code, and OpenClaw JSONL conversations.",
+  "description": "A local desktop session manager for Codex, Claude Code, and OpenClaw JSONL conversations.",
   "private": false,
   "type": "module",
+  "bin": "server.js",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -11,10 +12,24 @@
   },
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "scan": "node server.js --scan"
+    "dev": "node server.js --open",
+    "scan": "node server.js --scan",
+    "build:win": "pkg . --targets node18-win-x64 --output dist/AI-Session-Manager.exe",
+    "build:mac": "pkg . --targets node18-macos-arm64,node18-macos-x64 --out-path dist",
+    "build:linux": "pkg . --targets node18-linux-x64 --out-path dist"
   },
   "engines": {
     "node": ">=18"
+  },
+  "pkg": {
+    "scripts": [
+      "server.js"
+    ],
+    "assets": [
+      "public/**/*"
+    ]
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.21.0"
   }
 }

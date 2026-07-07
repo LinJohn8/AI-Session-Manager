@@ -4,13 +4,18 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import readline from "node:readline";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
 const PORT = Number(process.env.PORT || 4747);
+const HOST = process.env.HOST || "127.0.0.1";
 const REPOSITORY_URL = "https://github.com/LinJohn8/AI-Session-Manager";
 const PAYPAL_URL = "https://www.paypal.com/paypalme/HWSLandDFTX8";
+const APP_NAME = "AI Session Manager";
+const IS_PACKAGED = Boolean(process.pkg);
+const SHOULD_OPEN_BROWSER = process.argv.includes("--open") || process.env.AI_SESSION_MANAGER_OPEN === "1" || IS_PACKAGED;
 
 const SEARCH_ROOTS = [
   {
@@ -31,7 +36,20 @@ const SEARCH_ROOTS = [
 ];
 
 const CODEX_INDEX = path.join(HOME, ".codex", "session_index.jsonl");
-const TRASH_ROOT = path.join(HOME, ".Trash", "CodexSessionCommand");
+function getAppTrashRoot() {
+  if (process.platform === "darwin") {
+    return path.join(HOME, ".Trash", "AI Session Manager");
+  }
+
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA || path.join(HOME, "AppData", "Local");
+    return path.join(localAppData, "AI Session Manager", "Trash");
+  }
+
+  return path.join(HOME, ".local", "share", "AI Session Manager", "Trash");
+}
+
+const TRASH_ROOT = getAppTrashRoot();
 
 const MIME_TYPES = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -56,6 +74,21 @@ function textResponse(res, status, text, contentType = "text/plain; charset=utf-
     "content-length": Buffer.byteLength(text),
   });
   res.end(text);
+}
+
+function openBrowser(url) {
+  const commands = {
+    darwin: ["open", [url]],
+    win32: ["cmd", ["/c", "start", "", url]],
+    linux: ["xdg-open", [url]],
+  };
+  const [command, args] = commands[process.platform] || commands.linux;
+  const child = spawn(command, args, {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  child.unref();
 }
 
 function compactText(value, max = 320) {
@@ -680,16 +713,21 @@ if (process.argv.includes("--scan")) {
     return serveStatic(res, url.pathname);
   });
 
-  server.listen(PORT, "127.0.0.1", () => {
+  server.listen(PORT, HOST, () => {
+    const localUrl = `http://${HOST}:${PORT}`;
     console.log([
       "",
-      "AI Session Manager",
-      "macOS local-first session manager for Codex, Claude Code, and OpenClaw.",
-      `Open: http://127.0.0.1:${PORT}`,
+      APP_NAME,
+      "Local-first desktop session manager for Codex, Claude Code, and OpenClaw.",
+      `Open: ${localUrl}`,
       `GitHub: ${REPOSITORY_URL}`,
       `Support: ${PAYPAL_URL}`,
       "QR support images are available in public/assets/.",
       "",
     ].join("\n"));
+
+    if (SHOULD_OPEN_BROWSER) {
+      openBrowser(localUrl);
+    }
   });
 }
