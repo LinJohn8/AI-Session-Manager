@@ -1,0 +1,20 @@
+.DS_Store
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+!.env.example
+coverage/
+dist/
+*.log
+
+# Local session data must never be committed.
+*.jsonl
+*.jsonl.deleted.*
+session_index.jsonl
+CodexSessionCommand/
+
+# Optional private donation QR images. Replace the placeholder SVGs locally if needed.
+public/assets/*-private.*

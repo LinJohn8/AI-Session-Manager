@@ -1,0 +1,20 @@
+{
+  "name": "ai-session-manager",
+  "version": "1.0.0",
+  "description": "A local macOS session manager for Codex, Claude Code, and OpenClaw JSONL conversations.",
+  "private": false,
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LinJohn8/AI-Session-Manager.git"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "scan": "node server.js --scan"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Session Command</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local session control</p>
+          <h1>AI Session Manager</h1>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" id="refreshBtn" title="重新扫描" aria-label="重新扫描">
+            <span aria-hidden="true">↻</span>
+          </button>
+          <button class="danger-button" id="deleteSelectedBtn" disabled>移到废纸篓</button>
+        </div>
+      </header>
+
+      <section class="notice-band" aria-label="Startup notice">
+        <div class="notice-copy">
+          <strong>macOS local-first session manager.</strong>
+          <span>Review Codex, Claude Code, and OpenClaw JSONL sessions before moving them to Trash.</span>
+        </div>
+        <div class="notice-links">
+          <a href="https://github.com/LinJohn8/AI-Session-Manager" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://www.paypal.com/paypalme/HWSLandDFTX8" target="_blank" rel="noreferrer">PayPal</a>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="Session summary">
+        <div class="metric">
+          <span class="metric-value" id="countMetric">0</span>
+          <span class="metric-label">sessions</span>
+        </div>
+        <div class="metric">
+          <span class="metric-value" id="sizeMetric">0 B</span>
+          <span class="metric-label">total size</span>
+        </div>
+        <div class="metric accent">
+          <span class="metric-value" id="selectedMetric">0</span>
+          <span class="metric-label">selected</span>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <aside class="control-panel">
+          <label class="field">
+            <span>搜索</span>
+            <input id="searchInput" type="search" placeholder="标题、路径、cwd、第一句话" autocomplete="off" />
+          </label>
+
+          <div class="segmented" role="tablist" aria-label="来源">
+            <button class="segment active" data-source="all">全部</button>
+            <button class="segment" data-source="codex">Codex</button>
+            <button class="segment" data-source="openclaw">OpenClaw</button>
+            <button class="segment" data-source="claude">Claude</button>
+          </div>
+
+          <label class="toggle-line">
+            <input type="checkbox" id="unindexedOnly" />
+            <span>只看 Codex 界面未索引</span>
+          </label>
+
+          <label class="toggle-line">
+            <input type="checkbox" id="hideSameWorkspace" />
+            <span>隐藏当前工作目录</span>
+          </label>
+
+          <div class="sort-row">
+            <label for="sortSelect">排序</label>
+            <select id="sortSelect">
+              <option value="recent">最近更新</option>
+              <option value="size">文件大小</option>
+              <option value="messages">消息数量</option>
+              <option value="source">来源</option>
+            </select>
+          </div>
+
+          <div class="path-box">
+            <span>废纸篓批次目录</span>
+            <code id="trashRoot">-</code>
+          </div>
+
+          <div class="support-box">
+            <span>Support</span>
+            <a href="https://www.paypal.com/paypalme/HWSLandDFTX8" target="_blank" rel="noreferrer">PayPal: HWSLandDFTX8</a>
+            <div class="qr-pair">
+              <figure>
+                <img src="/assets/wechat-pay-qr.png" alt="WeChat Pay QR code" />
+                <figcaption>WeChat Pay</figcaption>
+              </figure>
+              <figure>
+                <img src="/assets/alipay-qr.png" alt="Alipay QR code" />
+                <figcaption>Alipay</figcaption>
+              </figure>
+            </div>
+          </div>
+        </aside>
+
+        <section class="session-list" aria-label="Sessions">
+          <div class="list-toolbar">
+            <label class="toggle-line compact">
+              <input type="checkbox" id="selectVisible" />
+              <span>选择当前列表</span>
+            </label>
+            <span id="visibleCount">0 visible</span>
+          </div>
+          <div class="rows" id="sessionRows"></div>
+        </section>
+
+        <section class="preview-panel" aria-label="Session preview">
+          <div class="preview-empty" id="previewEmpty">
+            <p>选择左侧 session 后查看内容。</p>
+          </div>
+          <article class="preview-content hidden" id="previewContent">
+            <header class="preview-header">
+              <div>
+                <span class="source-pill" id="previewSource">-</span>
+                <h2 id="previewTitle">-</h2>
+              </div>
+              <button class="danger-ghost" id="deleteOneBtn">移到废纸篓</button>
+            </header>
+            <div class="preview-mode" role="tablist" aria-label="预览模式">
+              <button class="mode-button active" data-mode="readable">可读对话</button>
+              <button class="mode-button" data-mode="all">全量记录</button>
+              <button class="mode-button" data-mode="tools">工具记录</button>
+            </div>
+            <dl class="details-grid" id="previewDetails"></dl>
+            <div class="message-stream" id="messageStream"></div>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <dialog class="confirm-dialog" id="confirmDialog">
+      <form method="dialog">
+        <h2>确认移到废纸篓</h2>
+        <p id="confirmText">-</p>
+        <div class="confirm-list" id="confirmList"></div>
+        <div class="dialog-actions">
+          <button value="cancel" class="neutral-button">取消</button>
+          <button value="confirm" class="danger-button">确认移动</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast hidden" id="toast"></div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
