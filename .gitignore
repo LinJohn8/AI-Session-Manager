@@ -8,6 +8,8 @@ yarn-error.log*
 !.env.example
 coverage/
 dist/
+bin/
+obj/
 *.log
 
 # Local session data must never be committed.

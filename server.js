@@ -1,50 +1,114 @@
 import http from "node:http";
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import initSqlJs from "sql.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
+const IS_WINDOWS = process.platform === "win32";
+const APPDATA = process.env.APPDATA || path.join(HOME, "AppData", "Roaming");
+const LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(HOME, "AppData", "Local");
 const PORT = Number(process.env.PORT || 4747);
 const HOST = process.env.HOST || "127.0.0.1";
 const REPOSITORY_URL = "https://github.com/LinJohn8/AI-Session-Manager";
 const PAYPAL_URL = "https://www.paypal.com/paypalme/HWSLandDFTX8";
 const APP_NAME = "AI Session Manager";
+const APP_VERSION = "windows-codex-state-v2";
 const IS_PACKAGED = Boolean(process.pkg);
 const SHOULD_OPEN_BROWSER = process.argv.includes("--open") || process.env.AI_SESSION_MANAGER_OPEN === "1" || IS_PACKAGED;
 
+function uniquePaths(paths) {
+  const seen = new Set();
+  return paths
+    .filter(Boolean)
+    .map((item) => path.normalize(item))
+    .filter((item) => {
+      const key = IS_WINDOWS ? item.toLowerCase() : item;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function firstExistingPath(paths) {
+  return uniquePaths(paths).find((item) => existsSync(item)) || uniquePaths(paths)[0];
+}
+
+function searchRoots(source, label, roots) {
+  return uniquePaths(roots).map((root) => ({ source, label, root }));
+}
+
+function codexHomeCandidates() {
+  const roots = [
+    process.env.CODEX_HOME,
+    path.join(HOME, ".codex"),
+  ];
+
+  if (IS_WINDOWS) {
+    roots.push(
+      path.join(APPDATA, "Codex"),
+      path.join(LOCALAPPDATA, "Codex"),
+    );
+  }
+
+  return uniquePaths(roots);
+}
+
+function claudeProjectsCandidates() {
+  const roots = [
+    process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, "projects") : null,
+    path.join(HOME, ".claude", "projects"),
+  ];
+
+  if (IS_WINDOWS) {
+    roots.push(
+      path.join(APPDATA, "Claude", "projects"),
+      path.join(LOCALAPPDATA, "Claude", "projects"),
+    );
+  }
+
+  return uniquePaths(roots);
+}
+
+function openClawAgentsCandidates() {
+  const roots = [
+    process.env.OPENCLAW_HOME ? path.join(process.env.OPENCLAW_HOME, "agents") : null,
+    path.join(HOME, ".openclaw", "agents"),
+  ];
+
+  if (IS_WINDOWS) {
+    roots.push(
+      path.join(APPDATA, "OpenClaw", "agents"),
+      path.join(LOCALAPPDATA, "OpenClaw", "agents"),
+    );
+  }
+
+  return uniquePaths(roots);
+}
+
+const CODEX_HOME = firstExistingPath(codexHomeCandidates());
+const CODEX_INDEX = path.join(CODEX_HOME, "session_index.jsonl");
+const CODEX_SESSIONS_ROOT = path.join(CODEX_HOME, "sessions");
+let sqlJsPromise = null;
+
 const SEARCH_ROOTS = [
-  {
-    source: "codex",
-    label: "Codex",
-    root: path.join(HOME, ".codex", "sessions"),
-  },
-  {
-    source: "openclaw",
-    label: "OpenClaw",
-    root: path.join(HOME, ".openclaw", "agents"),
-  },
-  {
-    source: "claude",
-    label: "Claude Code",
-    root: path.join(HOME, ".claude", "projects"),
-  },
+  ...searchRoots("codex", "Codex", codexHomeCandidates().map((root) => path.join(root, "sessions"))),
+  ...searchRoots("openclaw", "OpenClaw", openClawAgentsCandidates()),
+  ...searchRoots("claude", "Claude Code", claudeProjectsCandidates()),
 ];
 
-const CODEX_INDEX = path.join(HOME, ".codex", "session_index.jsonl");
-const CODEX_SESSIONS_ROOT = path.join(HOME, ".codex", "sessions");
 function getAppTrashRoot() {
   if (process.platform === "darwin") {
     return path.join(HOME, ".Trash", "AI Session Manager");
   }
 
-  if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA || path.join(HOME, "AppData", "Local");
-    return path.join(localAppData, "AI Session Manager", "Trash");
+  if (IS_WINDOWS) {
+    return path.join(LOCALAPPDATA, "AI Session Manager", "Trash");
   }
 
   return path.join(HOME, ".local", "share", "AI Session Manager", "Trash");
@@ -65,6 +129,7 @@ function jsonResponse(res, status, data) {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
   });
   res.end(body);
 }
@@ -73,6 +138,7 @@ function textResponse(res, status, text, contentType = "text/plain; charset=utf-
   res.writeHead(status, {
     "content-type": contentType,
     "content-length": Buffer.byteLength(text),
+    "cache-control": "no-store",
   });
   res.end(text);
 }
@@ -132,6 +198,32 @@ function summarizeToolOutput(value) {
   return [...lines.slice(0, 6), "...", ...lines.slice(-3)].join("\n");
 }
 
+function stringifyCompact(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function extractReasoningText(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  if (typeof payload.text === "string") return payload.text;
+  if (typeof payload.content === "string") return payload.content;
+  if (Array.isArray(payload.summary)) {
+    return payload.summary
+      .map((item) => {
+        if (typeof item === "string") return item;
+        return item?.text || item?.summary || "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  return "";
+}
+
 function extractContentText(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -163,18 +255,33 @@ function toIso(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function isInside(child, parent) {
-  const relative = path.relative(parent, child);
+function isPathInside(child, parent) {
+  const resolvedChild = path.resolve(child);
+  const resolvedParent = path.resolve(parent);
+  const normalizedChild = IS_WINDOWS ? resolvedChild.toLowerCase() : resolvedChild;
+  const normalizedParent = IS_WINDOWS ? resolvedParent.toLowerCase() : resolvedParent;
+  const relative = path.relative(normalizedParent, normalizedChild);
   return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 function pathsEqual(a, b) {
-  return path.resolve(a) === path.resolve(b);
+  const resolvedA = path.resolve(a);
+  const resolvedB = path.resolve(b);
+  return IS_WINDOWS ? resolvedA.toLowerCase() === resolvedB.toLowerCase() : resolvedA === resolvedB;
+}
+
+function pathKey(filePath) {
+  const resolved = path.resolve(stripWindowsExtendedPath(filePath));
+  return IS_WINDOWS ? resolved.toLowerCase() : resolved;
+}
+
+function stripWindowsExtendedPath(filePath) {
+  return String(filePath || "").replace(/^\\\\\?\\/, "");
 }
 
 function allowedRootFor(filePath) {
   const resolved = path.resolve(filePath);
-  return SEARCH_ROOTS.find((root) => isInside(resolved, root.root) || resolved === root.root);
+  return SEARCH_ROOTS.find((root) => isPathInside(resolved, root.root) || pathsEqual(resolved, root.root));
 }
 
 async function fileExists(filePath) {
@@ -231,6 +338,75 @@ async function readCodexIndex() {
   return index;
 }
 
+async function getSqlJs() {
+  sqlJsPromise ||= initSqlJs();
+  return sqlJsPromise;
+}
+
+async function readCodexThreadIndexes() {
+  const byId = new Map();
+  const byPath = new Map();
+
+  for (const codexHome of codexHomeCandidates()) {
+    if (!(await fileExists(codexHome))) continue;
+
+    let entries = [];
+    try {
+      entries = await fs.readdir(codexHome, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    const stateFiles = entries
+      .filter((entry) => entry.isFile() && /^state_\d+\.sqlite$/i.test(entry.name))
+      .map((entry) => path.join(codexHome, entry.name));
+
+    for (const stateFile of stateFiles) {
+      try {
+        const SQL = await getSqlJs();
+        const database = new SQL.Database(await fs.readFile(stateFile));
+        try {
+          const result = database.exec(`
+            SELECT id, rollout_path, title, cwd, model_provider, model, updated_at_ms, created_at_ms,
+                   updated_at, created_at, archived, preview, source
+            FROM threads
+          `);
+          const table = result[0];
+          if (!table) continue;
+
+          for (const values of table.values) {
+            const row = Object.fromEntries(table.columns.map((column, index) => [column, values[index]]));
+            if (!row.id) continue;
+            const rolloutPath = stripWindowsExtendedPath(row.rollout_path);
+            const item = {
+              id: row.id,
+              path: rolloutPath,
+              title: row.title || row.preview || null,
+              cwd: stripWindowsExtendedPath(row.cwd),
+              provider: row.model_provider || null,
+              model: row.model || null,
+              updatedAt: toIso(row.updated_at_ms || (row.updated_at ? row.updated_at * 1000 : null)),
+              createdAt: toIso(row.created_at_ms || (row.created_at ? row.created_at * 1000 : null)),
+              archived: Boolean(row.archived),
+              preview: row.preview || null,
+              source: row.source || null,
+              statePath: stateFile,
+            };
+            byId.set(item.id, item);
+            if (rolloutPath) byPath.set(pathKey(rolloutPath), item);
+          }
+        } finally {
+          database.close();
+        }
+      } catch {
+        // A locked or older SQLite state file should not block JSONL scanning.
+      }
+    }
+  }
+
+  return { byId, byPath };
+}
+
 function applyObjectMetadata(obj, metadata) {
   if (obj.type === "session_meta" && obj.payload) {
     metadata.id ||= obj.payload.session_id || obj.payload.id;
@@ -272,6 +448,46 @@ function messageFromObject(obj, source) {
       };
     }
 
+    if (obj.type === "event_msg" && obj.payload?.type === "agent_message") {
+      const rawText = obj.payload.message || "";
+      const displayText = cleanPreviewLabel(rawText);
+      return {
+        role: "assistant",
+        text: rawText,
+        displayText,
+        timestamp: toIso(obj.timestamp),
+        kind: "message",
+        category: displayText ? "conversation" : "system",
+      };
+    }
+
+    if (obj.type === "event_msg" && obj.payload?.type === "agent_reasoning") {
+      const rawText = extractReasoningText(obj.payload);
+      return {
+        role: "assistant",
+        text: rawText,
+        displayText: cleanPreviewLabel(rawText),
+        timestamp: toIso(obj.timestamp),
+        kind: "reasoning",
+        category: "system",
+      };
+    }
+
+    if (obj.type === "event_msg" && obj.payload?.type?.endsWith("_end")) {
+      const payload = obj.payload;
+      const name = payload.command?.join?.(" ") || payload.invocation?.tool || payload.query || payload.type;
+      const output = payload.formatted_output || payload.aggregated_output || payload.stdout || payload.stderr || payload.result || payload.changes || "";
+      const rawText = `${name}\n${stringifyCompact(output)}`.trim();
+      return {
+        role: "tool",
+        text: rawText,
+        displayText: summarizeToolOutput(rawText),
+        timestamp: toIso(obj.timestamp),
+        kind: payload.type,
+        category: "tool",
+      };
+    }
+
     if (obj.type === "response_item") {
       const payload = obj.payload || {};
       if (payload.type === "message") {
@@ -301,6 +517,18 @@ function messageFromObject(obj, source) {
         };
       }
 
+      if (payload.type === "custom_tool_call" || payload.type === "web_search_call" || payload.type === "tool_search_call") {
+        const rawText = `${payload.name || payload.type} ${stringifyCompact(payload.input || payload.action || payload.arguments || {})}`;
+        return {
+          role: "tool",
+          text: rawText,
+          displayText: `[tool call] ${summarizeToolOutput(rawText)}`,
+          timestamp: toIso(obj.timestamp),
+          kind: payload.type,
+          category: "tool",
+        };
+      }
+
       if (payload.type === "function_call_output") {
         const rawText = payload.output || "";
         return {
@@ -310,6 +538,31 @@ function messageFromObject(obj, source) {
           timestamp: toIso(obj.timestamp),
           kind: "tool_result",
           category: "tool",
+        };
+      }
+
+      if (payload.type === "custom_tool_call_output" || payload.type === "tool_search_output") {
+        const rawText = stringifyCompact(payload.output || payload.tools || "");
+        return {
+          role: "tool",
+          text: rawText,
+          displayText: summarizeToolOutput(rawText),
+          timestamp: toIso(obj.timestamp),
+          kind: payload.type,
+          category: "tool",
+        };
+      }
+
+      if (payload.type === "reasoning") {
+        const rawText = extractReasoningText(payload);
+        if (!rawText) return null;
+        return {
+          role: "assistant",
+          text: rawText,
+          displayText: cleanPreviewLabel(rawText),
+          timestamp: toIso(obj.timestamp),
+          kind: "reasoning",
+          category: "system",
         };
       }
     }
@@ -369,8 +622,14 @@ function messageFromObject(obj, source) {
   return null;
 }
 
+function shouldIncludeMessage(message, mode) {
+  if (mode === "tools") return message.category === "tool";
+  if (mode === "all") return true;
+  return message.category !== "tool" && message.category !== "system";
+}
+
 async function parseSessionFile(filePath, source, options = {}) {
-  const { full = false, maxMessages = 1000 } = options;
+  const { full = false, maxMessages = 80, mode = "readable" } = options;
   const stat = await fs.stat(filePath);
   const metadata = {
     id: null,
@@ -430,14 +689,17 @@ async function parseSessionFile(filePath, source, options = {}) {
       firstAssistantText = compactText(cleanPreviewLabel(msg.text), 280);
     }
 
-    if (full && messages.length < maxMessages) {
-      messages.push({
+    if (full && shouldIncludeMessage(msg, mode)) {
+      const previewMessage = {
         ...msg,
-        text: msg.text.length > 24000 ? `${msg.text.slice(0, 24000)}\n\n[truncated]` : msg.text,
+        text: msg.text.length > 12000 ? `${msg.text.slice(0, 12000)}\n\n[truncated]` : msg.text,
         displayText: (msg.displayText || msg.text).length > 12000
           ? `${(msg.displayText || msg.text).slice(0, 12000)}\n\n[truncated]`
           : (msg.displayText || msg.text),
-      });
+      };
+
+      messages.push(previewMessage);
+      if (messages.length > maxMessages) messages.shift();
     }
   }
 
@@ -470,17 +732,35 @@ async function parseSessionFile(filePath, source, options = {}) {
     firstUserText,
     firstAssistantText,
     messages,
-    messageLimitReached: full && metadata.messageCount + metadata.toolCount > messages.length,
+    previewMode: mode,
+    messageLimitReached: full && metadata.messageCount + metadata.toolCount + metadata.systemCount > messages.length,
+    previewLimit: maxMessages,
   };
 }
 
 async function getSessions() {
   const index = await readCodexIndex();
+  const threadIndex = await readCodexThreadIndexes();
   const allFiles = [];
+  const seenFiles = new Set();
 
   for (const root of SEARCH_ROOTS) {
     const files = await findJsonlFiles(root.root);
-    allFiles.push(...files.map((file) => ({ file, source: root.source })));
+    for (const file of files) {
+      const key = pathKey(file);
+      if (seenFiles.has(key)) continue;
+      seenFiles.add(key);
+      allFiles.push({ file, source: root.source });
+    }
+  }
+
+  for (const thread of threadIndex.byId.values()) {
+    if (!thread.path || seenFiles.has(pathKey(thread.path))) continue;
+    if (!(await fileExists(thread.path))) continue;
+    const root = allowedRootFor(thread.path);
+    if (!root || root.source !== "codex") continue;
+    seenFiles.add(pathKey(thread.path));
+    allFiles.push({ file: thread.path, source: "codex" });
   }
 
   const sessions = [];
@@ -488,6 +768,9 @@ async function getSessions() {
     try {
       const session = await parseSessionFile(item.file, item.source);
       const indexItem = item.source === "codex" ? index.get(session.id) : null;
+      const threadItem = item.source === "codex"
+        ? threadIndex.byId.get(session.id) || threadIndex.byPath.get(pathKey(session.path))
+        : null;
       if (indexItem) {
         session.title = indexItem.thread_name || session.title;
         session.indexed = true;
@@ -495,8 +778,19 @@ async function getSessions() {
       } else {
         session.indexed = false;
       }
+      if (threadItem) {
+        session.title = threadItem.title || session.title;
+        session.cwd = threadItem.cwd || session.cwd;
+        session.provider = threadItem.provider || session.provider;
+        session.model = threadItem.model || session.model;
+        session.lastTimestamp = threadItem.updatedAt || session.lastTimestamp;
+        session.firstTimestamp = threadItem.createdAt || session.firstTimestamp;
+        session.codexStateIndexed = true;
+        session.codexStatePath = threadItem.statePath;
+        session.archived = threadItem.archived;
+      }
       session.title ||= session.firstUserText || session.id;
-      session.sameWorkspace = session.cwd === process.cwd();
+      session.sameWorkspace = pathsEqual(session.cwd || "", process.cwd());
       sessions.push(session);
     } catch (error) {
       sessions.push({
@@ -514,6 +808,7 @@ async function getSessions() {
     sessions,
     roots: SEARCH_ROOTS,
     codexIndex: CODEX_INDEX,
+    codexStateIndexes: [...new Set([...threadIndex.byId.values()].map((item) => item.statePath))],
     trashRoot: TRASH_ROOT,
   };
 }
@@ -802,22 +1097,49 @@ async function transferCodexSessions({ paths, targetPath, mode = "copy" }) {
 
 async function handleApi(req, res, pathname, searchParams) {
   try {
+    if (req.method === "GET" && pathname === "/api/health") {
+      return jsonResponse(res, 200, {
+        app: APP_NAME,
+        version: APP_VERSION,
+        platform: process.platform,
+        pid: process.pid,
+      });
+    }
+
     if (req.method === "GET" && pathname === "/api/sessions") {
       return jsonResponse(res, 200, await getSessions());
     }
 
     if (req.method === "GET" && pathname === "/api/session") {
       const filePath = path.resolve(searchParams.get("path") || "");
+      const mode = ["readable", "tools", "all"].includes(searchParams.get("mode"))
+        ? searchParams.get("mode")
+        : "readable";
       const root = allowedRootFor(filePath);
       if (!root) return jsonResponse(res, 403, { error: "Path is outside allowed session roots." });
 
       const index = await readCodexIndex();
-      const session = await parseSessionFile(filePath, root.source, { full: true });
+      const threadIndex = root.source === "codex" ? await readCodexThreadIndexes() : null;
+      const session = await parseSessionFile(filePath, root.source, { full: true, mode });
       const indexItem = root.source === "codex" ? index.get(session.id) : null;
+      const threadItem = root.source === "codex"
+        ? threadIndex.byId.get(session.id) || threadIndex.byPath.get(pathKey(session.path))
+        : null;
       if (indexItem) {
         session.title = indexItem.thread_name || session.title;
         session.indexed = true;
         session.indexUpdatedAt = indexItem.updated_at || null;
+      }
+      if (threadItem) {
+        session.title = threadItem.title || session.title;
+        session.cwd = threadItem.cwd || session.cwd;
+        session.provider = threadItem.provider || session.provider;
+        session.model = threadItem.model || session.model;
+        session.lastTimestamp = threadItem.updatedAt || session.lastTimestamp;
+        session.firstTimestamp = threadItem.createdAt || session.firstTimestamp;
+        session.codexStateIndexed = true;
+        session.codexStatePath = threadItem.statePath;
+        session.archived = threadItem.archived;
       }
       session.title ||= session.firstUserText || session.id;
       return jsonResponse(res, 200, { session });
@@ -851,7 +1173,10 @@ async function serveStatic(res, pathname) {
   try {
     const content = await fs.readFile(filePath);
     const contentType = MIME_TYPES.get(path.extname(filePath)) || "application/octet-stream";
-    res.writeHead(200, { "content-type": contentType });
+    res.writeHead(200, {
+      "content-type": contentType,
+      "cache-control": "no-store",
+    });
     res.end(content);
   } catch {
     textResponse(res, 404, "Not found");

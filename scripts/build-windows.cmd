@@ -16,3 +16,4 @@ if errorlevel 1 exit /b %errorlevel%
 
 echo.
 echo Built dist\AI-Session-Manager.exe
+echo Built dist\AI-Session-Manager-server.exe

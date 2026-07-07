@@ -561,28 +561,42 @@ code {
 .message-stream {
   overflow: auto;
   padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .message {
-  margin-bottom: 12px;
+  width: fit-content;
+  max-width: min(78%, 820px);
   padding: 12px;
   border: 1px solid var(--line);
+  border-radius: 8px;
   background: #fffdf7;
+  box-shadow: 0 8px 18px rgba(40, 34, 28, 0.06);
 }
 
 .message.user {
-  border-left: 5px solid var(--green);
+  align-self: flex-end;
+  border-right: 5px solid var(--green);
+  background: #eef7e8;
 }
 
 .message.assistant {
+  align-self: flex-start;
   border-left: 5px solid var(--blue);
+  background: #f8fbff;
 }
 
 .message.tool {
+  align-self: center;
+  max-width: min(88%, 900px);
   border-left: 5px solid var(--amber);
 }
 
 .message.system {
+  align-self: center;
+  max-width: min(88%, 900px);
   border-left: 5px solid var(--line-strong);
   opacity: 0.86;
 }
@@ -601,9 +615,15 @@ code {
 .message-body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.62;
+}
+
+.message.tool .message-body,
+.message.system .message-body {
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 12px;
-  line-height: 1.55;
 }
 
 .confirm-dialog {

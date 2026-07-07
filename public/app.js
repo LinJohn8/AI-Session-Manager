@@ -207,8 +207,14 @@ function render() {
 }
 
 async function fetchJson(url, options) {
-  const res = await fetch(url, options);
-  const data = await res.json();
+  const res = await fetch(url, { cache: "no-store", ...(options || {}) });
+  const text = await res.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`HTTP ${res.status}: ${text.slice(0, 500) || "Invalid JSON response"}`);
+  }
   if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
@@ -224,23 +230,32 @@ async function loadSessions() {
   applyFilters();
 }
 
-async function loadPreview(path) {
+async function loadPreview(path, mode = "readable") {
   state.activePath = path;
+  state.previewMode = mode;
   renderRows();
   els.previewEmpty.classList.add("hidden");
   els.previewContent.classList.remove("hidden");
   els.previewTitle.textContent = "加载中...";
   els.messageStream.textContent = "";
+  syncModeButtons();
 
   try {
-    const data = await fetchJson(`/api/session?path=${encodeURIComponent(path)}`);
+    const data = await fetchJson(`/api/session?path=${encodeURIComponent(path)}&mode=${encodeURIComponent(mode)}`);
     state.previewSession = data.session;
-    state.previewMode = "readable";
+    state.previewMode = data.session.previewMode || mode;
     syncModeButtons();
     renderPreview(data.session);
   } catch (error) {
     els.previewTitle.textContent = "读取失败";
-    els.messageStream.textContent = error.message;
+    els.messageStream.textContent = [
+      error.message,
+      "",
+      "Path:",
+      path,
+      "",
+      "Tip: If this keeps happening, exit the tray app and start dist/AI-Session-Manager.exe again.",
+    ].join("\n");
   }
 }
 
@@ -258,6 +273,7 @@ function renderPreview(session) {
     ["大小", formatBytes(session.sizeBytes)],
     ["记录", `${session.messageCount || 0} 对话, ${session.toolCount || 0} 工具, ${session.systemCount || 0} 系统`],
     ["模型", [session.provider, session.model].filter(Boolean).join(" / ") || "-"],
+    ["Codex state", session.codexStateIndexed ? session.codexStatePath : "-"],
   ];
 
   els.previewDetails.textContent = "";
@@ -275,11 +291,7 @@ function renderPreview(session) {
 function renderMessages(session) {
   els.messageStream.textContent = "";
   const fragment = document.createDocumentFragment();
-  const messages = (session.messages || []).filter((message) => {
-    if (state.previewMode === "tools") return message.category === "tool";
-    if (state.previewMode === "all") return true;
-    return message.category !== "tool" && message.category !== "system";
-  });
+  const messages = session.messages || [];
 
   for (const message of messages) {
     const node = document.createElement("section");
@@ -292,7 +304,7 @@ function renderMessages(session) {
     const bodyText = state.previewMode === "all" ? (message.text || "") : (message.displayText || message.text || "");
     node.innerHTML = `
       <div class="message-head">
-        <span>${escapeHtml([message.role || "unknown", message.kind, message.phase].filter(Boolean).join(" · "))}</span>
+        <span>${escapeHtml(roleLabel(role, message))}</span>
         <span>${escapeHtml(formatDate(message.timestamp))}</span>
       </div>
       <div class="message-body">${escapeHtml(bodyText)}</div>
@@ -302,20 +314,27 @@ function renderMessages(session) {
 
   if (!messages.length) {
     const empty = document.createElement("p");
-    empty.textContent = state.previewMode === "tools"
-      ? "这个 session 没有解析出工具记录。"
-      : "这个文件里没有解析出可显示的消息。";
+    empty.className = "message system";
+    empty.textContent = "????????????";
     fragment.append(empty);
   }
 
   if (session.messageLimitReached) {
     const limit = document.createElement("p");
-    limit.className = "message";
-    limit.textContent = "内容很长，预览只显示前 1000 条可解析记录。";
+    limit.className = "message system";
+    limit.textContent = `????? ${session.previewLimit || messages.length} ??`;
     fragment.append(limit);
   }
 
   els.messageStream.append(fragment);
+  els.messageStream.scrollTop = els.messageStream.scrollHeight;
+}
+
+function roleLabel(role, message) {
+  if (role === "assistant") return "AI";
+  if (role === "user") return "??";
+  if (role === "tool") return message.kind || "??";
+  return message.kind || "??";
 }
 
 function syncModeButtons() {
@@ -443,9 +462,8 @@ els.hideSameWorkspace.addEventListener("change", applyFilters);
 els.sortSelect.addEventListener("change", applyFilters);
 els.modeButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    state.previewMode = button.dataset.mode;
-    syncModeButtons();
-    if (state.previewSession) renderMessages(state.previewSession);
+    if (!state.activePath) return;
+    loadPreview(state.activePath, button.dataset.mode).catch((error) => showToast(error.message));
   });
 });
 els.selectVisible.addEventListener("change", (event) => {

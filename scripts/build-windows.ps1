@@ -11,3 +11,4 @@ npm run build:win
 
 Write-Host ""
 Write-Host "Built dist\\AI-Session-Manager.exe"
+Write-Host "Built dist\\AI-Session-Manager-server.exe"
