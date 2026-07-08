@@ -19,7 +19,7 @@ OpenClaw files named like `*.jsonl.deleted.*` are also shown and marked as `mark
   - `Readable`: hides system/tool noise and cleans environment context.
   - `All records`: shows every parsed record.
   - `Tools`: shows tool calls and command outputs.
-- Move selected sessions to macOS Trash instead of hard-deleting them.
+- Move selected sessions to macOS Trash or the Windows Recycle Bin instead of hard-deleting them.
 - Remove matching Codex rows from `~/.codex/session_index.jsonl` and keep a backup in the same Trash batch.
 - Copy or move selected Codex sessions into another `.codex` / `sessions` directory and append target `session_index.jsonl` rows.
 
@@ -59,6 +59,8 @@ or its sessions directory:
 ```
 
 The tool preserves the original date folder structure and tries to append matching `session_index.jsonl` rows for the target. If the target index already contains the same session id, the transfer is skipped to avoid duplicate imports.
+
+Note: `Codex migration` only moves local JSONL files and best-effort local index rows. It cannot fix permissions, cloud state, or product-side isolation between different Codex accounts. If the target account still does not show an old conversation after migration, use this tool to locate the matching `.jsonl` session file; once found, give that session file or its contents directly to an AI assistant to recover and summarize the previous chat.
 
 ## Quick Start
 
@@ -121,13 +123,19 @@ The Windows build uses `caxa`, which bundles the app with a Node.js runtime and 
 
 AI sessions can contain prompts, file paths, command output, tokens accidentally pasted by users, or private project information. Review before publishing logs or screenshots.
 
-Deletion is implemented as a move into:
+On macOS, deletion is implemented as a move into:
 
 ```text
 ~/.Trash/AI Session Manager
 ```
 
-On Windows, files are moved into:
+On Windows, selected files are sent directly to the system Recycle Bin. Delete manifests and Codex index backups are saved in:
+
+```text
+%LOCALAPPDATA%\AI Session Manager\Delete Records
+```
+
+Older Windows builds moved files into this app-local folder. If you deleted something with an older build and cannot find it in the Recycle Bin, check here:
 
 ```text
 %LOCALAPPDATA%\AI Session Manager\Trash

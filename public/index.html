@@ -14,10 +14,11 @@
           <h1>AI Session Manager</h1>
         </div>
         <div class="top-actions">
+          <span class="platform-badge" id="platformBadge" title="当前运行这个本地服务的系统">当前系统：检测中</span>
           <button class="icon-button" id="refreshBtn" title="重新扫描" aria-label="重新扫描">
             <span aria-hidden="true">↻</span>
           </button>
-          <button class="danger-button" id="deleteSelectedBtn" disabled>移到废纸篓</button>
+          <button class="danger-button" id="deleteSelectedBtn" disabled>移到废纸篓/回收站</button>
         </div>
       </header>
 
@@ -82,7 +83,7 @@
           </div>
 
           <div class="path-box">
-            <span>废纸篓批次目录</span>
+            <span id="trashRootLabel">废纸篓批次目录</span>
             <code id="trashRoot">-</code>
           </div>
 
@@ -136,7 +137,7 @@
                 <span class="source-pill" id="previewSource">-</span>
                 <h2 id="previewTitle">-</h2>
               </div>
-              <button class="danger-ghost" id="deleteOneBtn">移到废纸篓</button>
+              <button class="danger-ghost" id="deleteOneBtn">移到废纸篓/回收站</button>
             </header>
             <div class="preview-mode" role="tablist" aria-label="预览模式">
               <button class="mode-button active" data-mode="readable">可读对话</button>
@@ -152,7 +153,7 @@
 
     <dialog class="confirm-dialog" id="confirmDialog">
       <form method="dialog">
-        <h2>确认移到废纸篓</h2>
+        <h2 id="confirmTitle">确认移到废纸篓/回收站</h2>
         <p id="confirmText">-</p>
         <div class="confirm-list" id="confirmList"></div>
         <div class="dialog-actions">

@@ -22,6 +22,13 @@ const APP_VERSION = "windows-codex-state-v2";
 const IS_PACKAGED = Boolean(process.pkg);
 const SHOULD_OPEN_BROWSER = process.argv.includes("--open") || process.env.AI_SESSION_MANAGER_OPEN === "1" || IS_PACKAGED;
 
+function getPlatformLabel() {
+  if (IS_WINDOWS) return "Windows";
+  if (process.platform === "darwin") return "macOS";
+  if (process.platform === "linux") return "Linux";
+  return process.platform;
+}
+
 function uniquePaths(paths) {
   const seen = new Set();
   return paths
@@ -102,19 +109,38 @@ const SEARCH_ROOTS = [
   ...searchRoots("claude", "Claude Code", claudeProjectsCandidates()),
 ];
 
-function getAppTrashRoot() {
+function getTrashRecordRoot() {
   if (process.platform === "darwin") {
     return path.join(HOME, ".Trash", "AI Session Manager");
   }
 
   if (IS_WINDOWS) {
-    return path.join(LOCALAPPDATA, "AI Session Manager", "Trash");
+    return path.join(LOCALAPPDATA, "AI Session Manager", "Delete Records");
   }
 
   return path.join(HOME, ".local", "share", "AI Session Manager", "Trash");
 }
 
-const TRASH_ROOT = getAppTrashRoot();
+const TRASH_ROOT = getTrashRecordRoot();
+
+function getTrashLabel() {
+  if (IS_WINDOWS) return "Windows 回收站";
+  if (process.platform === "darwin") return "macOS 废纸篓";
+  return "Trash";
+}
+
+function getTrashRootDisplay() {
+  if (IS_WINDOWS) return `${getTrashLabel()}（记录：${TRASH_ROOT}）`;
+  return TRASH_ROOT;
+}
+
+function getDeleteTargetLabel() {
+  return getTrashLabel();
+}
+
+function getDeleteActionLabel() {
+  return `移到 ${getDeleteTargetLabel()}`;
+}
 
 const MIME_TYPES = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -156,6 +182,75 @@ function openBrowser(url) {
     windowsHide: true,
   });
   child.unref();
+}
+
+function runHiddenCommand(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+      ...options,
+    });
+    const stdout = [];
+    const stderr = [];
+
+    child.stdout?.on("data", (chunk) => stdout.push(chunk));
+    child.stderr?.on("data", (chunk) => stderr.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      const out = Buffer.concat(stdout).toString("utf8").trim();
+      const err = Buffer.concat(stderr).toString("utf8").trim();
+      if (code === 0) {
+        resolve({ stdout: out, stderr: err });
+      } else {
+        reject(new Error(err || out || `${command} exited with code ${code}`));
+      }
+    });
+  });
+}
+
+async function moveWindowsFileToRecycleBin(filePath) {
+  const script = `
+$ErrorActionPreference = 'Stop'
+$literalPath = $env:AI_SESSION_MANAGER_DELETE_PATH
+if (-not (Test-Path -LiteralPath $literalPath -PathType Leaf)) {
+  throw "File not found: $literalPath"
+}
+Add-Type -AssemblyName Microsoft.VisualBasic
+[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(
+  $literalPath,
+  [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
+  [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin
+)
+`;
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  await runHiddenCommand("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-EncodedCommand",
+    encoded,
+  ], {
+    env: {
+      ...process.env,
+      AI_SESSION_MANAGER_DELETE_PATH: filePath,
+    },
+  });
+}
+
+async function moveSessionFileToTrash(filePath, root, batchDir) {
+  if (IS_WINDOWS) {
+    await moveWindowsFileToRecycleBin(filePath);
+    return getTrashLabel();
+  }
+
+  const destination = await uniqueDestination(
+    path.join(batchDir, root.source, path.relative(root.root, filePath)),
+  );
+  await fs.mkdir(path.dirname(destination), { recursive: true });
+  await fs.rename(filePath, destination);
+  return destination;
 }
 
 function compactText(value, max = 320) {
@@ -807,9 +902,16 @@ async function getSessions() {
   return {
     sessions,
     roots: SEARCH_ROOTS,
+    platform: process.platform,
+    platformLabel: getPlatformLabel(),
+    deleteTargetLabel: getDeleteTargetLabel(),
+    deleteActionLabel: getDeleteActionLabel(),
     codexIndex: CODEX_INDEX,
     codexStateIndexes: [...new Set([...threadIndex.byId.values()].map((item) => item.statePath))],
     trashRoot: TRASH_ROOT,
+    trashRecordRoot: TRASH_ROOT,
+    trashRootDisplay: getTrashRootDisplay(),
+    trashLabel: getTrashLabel(),
   };
 }
 
@@ -943,13 +1045,8 @@ async function deleteSessions(paths) {
 
     try {
       const summary = await parseSessionFile(filePath, root.source);
+      const destination = await moveSessionFileToTrash(filePath, root, batchDir);
       if (root.source === "codex" && summary.id) codexIds.add(summary.id);
-
-      const destination = await uniqueDestination(
-        path.join(batchDir, root.source, path.relative(root.root, filePath)),
-      );
-      await fs.mkdir(path.dirname(destination), { recursive: true });
-      await fs.rename(filePath, destination);
       deleted.push({
         path: filePath,
         destination,
@@ -966,6 +1063,8 @@ async function deleteSessions(paths) {
   const index = await pruneCodexIndex(codexIds, batchDir);
   const manifest = {
     deletedAt: new Date().toISOString(),
+    trashLabel: getTrashLabel(),
+    recordDir: batchDir,
     deleted,
     failed,
     index,
@@ -973,6 +1072,8 @@ async function deleteSessions(paths) {
   await fs.writeFile(path.join(batchDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 
   return {
+    trashLabel: getTrashLabel(),
+    trashRecordRoot: TRASH_ROOT,
     trashBatchDir: batchDir,
     deleted,
     failed,
@@ -1102,6 +1203,9 @@ async function handleApi(req, res, pathname, searchParams) {
         app: APP_NAME,
         version: APP_VERSION,
         platform: process.platform,
+        platformLabel: getPlatformLabel(),
+        deleteTargetLabel: getDeleteTargetLabel(),
+        deleteActionLabel: getDeleteActionLabel(),
         pid: process.pid,
       });
     }
@@ -1191,6 +1295,8 @@ async function scanAndPrint() {
     totalSizeBytes: totalSize,
     roots: data.roots,
     trashRoot: data.trashRoot,
+    trashRootDisplay: data.trashRootDisplay,
+    trashLabel: data.trashLabel,
     sessions: data.sessions.map((session) => ({
       source: session.source,
       id: session.id,

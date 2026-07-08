@@ -19,7 +19,7 @@ AI Session Manager 是一个本地优先的桌面会话管理工具，用来查�
   - `可读对话`：默认视图，隐藏系统和工具噪音，并清理环境上下文。
   - `全量记录`：显示所有解析出的记录。
   - `工具记录`：只看工具调用、命令和输出摘要。
-- 勾选 session 后移动到 macOS 废纸篓，不做不可恢复的硬删除。
+- 勾选 session 后移动到 macOS 废纸篓或 Windows 回收站，不做不可恢复的硬删除。
 - 删除 Codex session 时，会同步移除 `~/.codex/session_index.jsonl` 中对应索引，并保存备份。
 - 将已选择的 Codex session 复制或剪切到另一个 `.codex` / `sessions` 目录，并为目标补写 `session_index.jsonl`。
 
@@ -59,6 +59,8 @@ AI Session Manager 是一个本地优先的桌面会话管理工具，用来查�
 ```
 
 复制/剪切时，工具会保留原来的日期目录结构，并尽量为目标补写 `session_index.jsonl`。如果目标索引里已经有同一个 session id，会跳过，避免重复导入。
+
+需要注意：`Codex 迁移` 只能移动本地 JSONL 文件并尽量补写本地索引，不能解决不同 Codex 登录账号之间的权限、云端状态或产品侧账号隔离问题。如果迁移后目标账号仍然看不到旧会话，至少可以用这个工具定位到对应的 `.jsonl` session 文件；找到后，把该 session 文件或文件内容直接交给 AI，就能让 AI 读取并整理之前的聊天记录。
 
 ## 启动
 
@@ -121,13 +123,19 @@ Windows 构建使用 `caxa`，会把项目和 Node.js runtime 一起打包；双
 
 AI session 可能包含提示词、文件路径、命令输出、用户误粘贴的 token 或私人项目信息。公开日志或截图前请先检查。
 
-删除操作会移动到：
+macOS 上删除操作会移动到：
 
 ```text
 ~/.Trash/AI Session Manager
 ```
 
-Windows 上会移动到：
+Windows 上会直接进入系统回收站。删除清单和 Codex 索引备份会保存在：
+
+```text
+%LOCALAPPDATA%\AI Session Manager\Delete Records
+```
+
+旧版本在 Windows 上曾经把文件移动到下面这个应用内目录；如果你之前删除后在回收站里找不到，可以先检查这里：
 
 ```text
 %LOCALAPPDATA%\AI Session Manager\Trash

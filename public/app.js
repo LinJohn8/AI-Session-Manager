@@ -7,9 +7,13 @@ const state = {
   query: "",
   previewSession: null,
   previewMode: "readable",
+  trashLabel: "废纸篓",
+  platform: "",
+  platformLabel: "检测中",
 };
 
 const els = {
+  platformBadge: document.querySelector("#platformBadge"),
   refreshBtn: document.querySelector("#refreshBtn"),
   deleteSelectedBtn: document.querySelector("#deleteSelectedBtn"),
   countMetric: document.querySelector("#countMetric"),
@@ -20,6 +24,7 @@ const els = {
   unindexedOnly: document.querySelector("#unindexedOnly"),
   hideSameWorkspace: document.querySelector("#hideSameWorkspace"),
   sortSelect: document.querySelector("#sortSelect"),
+  trashRootLabel: document.querySelector("#trashRootLabel"),
   trashRoot: document.querySelector("#trashRoot"),
   codexRoot: document.querySelector("#codexRoot"),
   transferTarget: document.querySelector("#transferTarget"),
@@ -37,6 +42,7 @@ const els = {
   deleteOneBtn: document.querySelector("#deleteOneBtn"),
   modeButtons: [...document.querySelectorAll(".mode-button")],
   confirmDialog: document.querySelector("#confirmDialog"),
+  confirmTitle: document.querySelector("#confirmTitle"),
   confirmText: document.querySelector("#confirmText"),
   confirmList: document.querySelector("#confirmList"),
   toast: document.querySelector("#toast"),
@@ -68,6 +74,20 @@ function sourceLabel(source) {
   if (source === "codex") return "Codex";
   if (source === "claude") return "Claude Code";
   return "OpenClaw";
+}
+
+function syncTrashLabels(data = {}) {
+  state.platform = data.platform || state.platform || "";
+  state.platformLabel = data.platformLabel || state.platformLabel || "未知系统";
+  state.trashLabel = data.deleteTargetLabel || data.trashLabel || state.trashLabel || "废纸篓";
+  const actionText = data.deleteActionLabel || `移到 ${state.trashLabel}`;
+  els.platformBadge.textContent = `当前系统：${state.platformLabel}`;
+  els.platformBadge.dataset.platform = state.platform;
+  els.platformBadge.title = `本地服务运行在 ${state.platformLabel}，删除会进入 ${state.trashLabel}`;
+  els.deleteSelectedBtn.textContent = actionText;
+  els.deleteOneBtn.textContent = actionText;
+  els.confirmTitle.textContent = `确认移到 ${state.trashLabel}`;
+  els.trashRootLabel.textContent = state.trashLabel.includes("Windows") ? "删除位置/记录" : "废纸篓批次目录";
 }
 
 function searchableText(session) {
@@ -223,7 +243,8 @@ async function loadSessions() {
   els.rows.innerHTML = `<div class="session-row"><div></div><div>正在扫描本机 session...</div></div>`;
   const data = await fetchJson("/api/sessions");
   state.sessions = data.sessions;
-  els.trashRoot.textContent = data.trashRoot;
+  syncTrashLabels(data);
+  els.trashRoot.textContent = data.trashRootDisplay || data.trashRoot;
   const codexRoot = data.roots.find((root) => root.source === "codex");
   els.codexRoot.textContent = codexRoot ? `当前：${codexRoot.root}` : "当前：未找到 Codex root";
   state.selected.clear();
@@ -354,7 +375,7 @@ function confirmDelete(paths) {
   if (!sessions.length) return;
 
   const totalSize = sessions.reduce((sum, session) => sum + (session.sizeBytes || 0), 0);
-  els.confirmText.textContent = `将 ${sessions.length} 个 session 移到废纸篓，合计 ${formatBytes(totalSize)}。Codex 索引中对应的条目也会移除。`;
+  els.confirmText.textContent = `将 ${sessions.length} 个 session 移到 ${state.trashLabel}，合计 ${formatBytes(totalSize)}。Codex 索引中对应的条目也会移除。`;
   els.confirmList.textContent = "";
   for (const session of sessions.slice(0, 12)) {
     const item = document.createElement("div");
@@ -384,7 +405,7 @@ async function deletePaths(paths) {
       body: JSON.stringify({ paths }),
     });
 
-    showToast(`已移动 ${data.deleted.length} 个 session 到 ${data.trashBatchDir}`);
+    showToast(`已移动 ${data.deleted.length} 个 session 到 ${data.trashLabel || state.trashLabel}；记录：${data.trashBatchDir}`);
     state.selected.clear();
     if (paths.includes(state.activePath)) {
       state.activePath = null;
